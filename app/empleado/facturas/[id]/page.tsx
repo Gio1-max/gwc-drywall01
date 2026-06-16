@@ -86,24 +86,24 @@ export default function FacturaDetallePage() {
   return (
     <div>
       {/* Botón imprimir - no se imprime */}
-      <div className="mb-4 print:hidden">
+      <div className="mb-4 print:hidden flex items-center gap-3">
+        <a href="/empleado/facturas" className="text-sm text-slate-500 hover:text-slate-700">← Volver</a>
         <button onClick={() => window.print()}
-          className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
-          Imprimir / Guardar PDF
+          className="ml-auto px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
+          Guardar PDF
         </button>
-        <a href="/empleado/facturas" className="ml-3 text-sm text-slate-500 hover:text-slate-700">← Volver</a>
       </div>
 
       {/* Factura imprimible */}
-      <div id="factura" className="bg-white rounded-2xl border border-slate-200 p-8 print:rounded-none print:border-none print:shadow-none print:p-6">
+      <div id="factura" className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-8 print:rounded-none print:border-none print:shadow-none print:p-6">
 
         {/* Header */}
-        <div className="flex justify-between items-start mb-8 pb-6 border-b-2 border-slate-800">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-6 pb-6 border-b-2 border-slate-800 gap-3">
           <div>
             <h1 className="text-2xl font-black text-slate-900">INVOICE</h1>
             <p className="text-slate-500 text-sm mt-1">{formatNumeroFactura(factura.numero_factura)}</p>
           </div>
-          <div className="text-right text-sm text-slate-600 space-y-0.5">
+          <div className="sm:text-right text-sm text-slate-600 space-y-0.5">
             <p><span className="font-semibold">Issue Date:</span> {fechaEmision}</p>
             <p><span className="font-semibold">Period:</span> {formatFecha(factura.quincena_inicio)} – {formatFecha(factura.quincena_fin)}</p>
             <p><span className="font-semibold">Payment Due:</span> {fechaPago}</p>
@@ -111,7 +111,7 @@ export default function FacturaDetallePage() {
         </div>
 
         {/* Partes */}
-        <div className="grid grid-cols-2 gap-8 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
           {/* Emisor (empleado) */}
           <div>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">From</p>
@@ -135,7 +135,8 @@ export default function FacturaDetallePage() {
         </div>
 
         {/* Tabla de servicios */}
-        <table className="w-full mb-6">
+        <div className="overflow-x-auto -mx-4 sm:mx-0 mb-6">
+        <table className="w-full min-w-[500px] sm:min-w-0">
           <thead>
             <tr className="bg-slate-800 text-white">
               <th className="text-left px-4 py-2.5 text-sm font-semibold rounded-tl-lg">Description</th>
@@ -176,6 +177,7 @@ export default function FacturaDetallePage() {
             })}
           </tbody>
         </table>
+        </div>
 
         {/* Totales */}
         <div className="flex justify-end">

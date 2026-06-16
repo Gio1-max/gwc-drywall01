@@ -249,7 +249,7 @@ export default function EmpleadoHorasPage() {
             </div>
             <div className="text-4xl">💰</div>
           </div>
-          <div className="flex gap-4 text-xs text-amber-900">
+          <div className="flex flex-wrap gap-2 text-xs text-amber-900">
             {gananciaHoras > 0 && <span>{totalHorasQuincena}h × ${perfil?.tarifa_hora} = ${gananciaHoras.toFixed(2)}</span>}
             {gananciaSF > 0 && <span>{totalSFQuincena} SF × ${perfil?.tarifa_sf} = ${gananciaSF.toFixed(2)}</span>}
             {gananciaExtras > 0 && <span>Trabajos extra = ${gananciaExtras.toFixed(2)}</span>}
