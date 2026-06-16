@@ -94,7 +94,7 @@ export default function FacturaDetallePage() {
     const pageWidth = pdf.internal.pageSize.getWidth()
     const pageHeight = (canvas.height * pageWidth) / canvas.width
     pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight)
-    pdf.save(`${formatNumeroFactura(factura.numero_factura)}.pdf`)
+    pdf.save(`${formatNumeroFactura(factura?.numero_factura ?? '')}.pdf`)
   }
 
   return (
