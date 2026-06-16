@@ -28,6 +28,10 @@ export default function DetalleEmpleadoPage() {
   const [guardando, setGuardando] = useState(false)
   const [exito, setExito] = useState(false)
   const [form, setForm] = useState<Perfil | null>(null)
+  const [nuevoEmail, setNuevoEmail] = useState('')
+  const [cambiandoEmail, setCambiandoEmail] = useState(false)
+  const [exitoEmail, setExitoEmail] = useState(false)
+  const [errorEmail, setErrorEmail] = useState('')
 
   useEffect(() => {
     supabase.from('profiles').select('*').eq('id', id).single().then(({ data }) => {
@@ -38,6 +42,23 @@ export default function DetalleEmpleadoPage() {
 
   function set(field: string, value: string | boolean) {
     setForm(f => f ? { ...f, [field]: value } : f)
+  }
+
+  async function handleCambiarEmail() {
+    if (!nuevoEmail || !nuevoEmail.includes('@')) { setErrorEmail('Ingresa un email válido.'); return }
+    setCambiandoEmail(true); setErrorEmail('')
+    const res = await fetch('/api/empleados/actualizar-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ empleadoId: id, nuevoEmail }),
+    })
+    const data = await res.json()
+    setCambiandoEmail(false)
+    if (data.error) { setErrorEmail(data.error); return }
+    setForm(f => f ? { ...f, email: nuevoEmail } : f)
+    setNuevoEmail('')
+    setExitoEmail(true)
+    setTimeout(() => setExitoEmail(false), 3000)
   }
 
   async function handleGuardar(e: React.FormEvent) {
@@ -126,10 +147,24 @@ export default function DetalleEmpleadoPage() {
           <p className="font-semibold text-slate-700">Acceso y Pagos</p>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Correo Electrónico</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Correo Electrónico actual</label>
             <input type="email" value={form.email} disabled
               className="w-full px-3 py-2.5 rounded-lg border border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed" />
-            <p className="text-xs text-slate-400 mt-1">El email no se puede cambiar desde aquí</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Cambiar correo electrónico</label>
+            <div className="flex gap-2">
+              <input type="email" value={nuevoEmail} onChange={e => setNuevoEmail(e.target.value)}
+                placeholder="nuevo@correo.com"
+                className="flex-1 px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              <button type="button" onClick={handleCambiarEmail} disabled={cambiandoEmail || !nuevoEmail}
+                className="px-4 py-2.5 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-40 transition-colors">
+                {cambiandoEmail ? '...' : 'Cambiar'}
+              </button>
+            </div>
+            {errorEmail && <p className="text-xs text-red-600 mt-1">{errorEmail}</p>}
+            {exitoEmail && <p className="text-xs text-emerald-600 mt-1">✓ Email actualizado correctamente</p>}
           </div>
 
           <div>
