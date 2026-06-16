@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { formatFecha } from '@/lib/quincena'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 
 interface Factura {
   id: string
@@ -83,12 +85,24 @@ export default function FacturaDetallePage() {
   const fechaEmision = new Date(factura.created_at).toLocaleDateString('es-CA', { day: '2-digit', month: 'long', year: 'numeric' })
   const fechaPago = calcularFechaPago(factura.quincena_fin)
 
+  async function guardarPDF() {
+    const element = document.getElementById('factura')
+    if (!element) return
+    const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' })
+    const imgData = canvas.toDataURL('image/png')
+    const pdf = new jsPDF('p', 'mm', 'a4')
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = (canvas.height * pageWidth) / canvas.width
+    pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight)
+    pdf.save(`${formatNumeroFactura(factura.numero_factura)}.pdf`)
+  }
+
   return (
     <div>
       {/* Botón imprimir - no se imprime */}
       <div className="mb-4 print:hidden flex items-center gap-3">
         <a href="/empleado/facturas" className="text-sm text-slate-500 hover:text-slate-700">← Volver</a>
-        <button onClick={() => window.print()}
+        <button onClick={guardarPDF}
           className="ml-auto px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
           Guardar PDF
         </button>
