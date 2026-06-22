@@ -311,7 +311,7 @@ export default function DetalleProyectoPage() {
                 className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Fecha estimada de fin</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Término</label>
               <input type="date" value={form.fecha_fin_estimada} onChange={e => setF('fecha_fin_estimada', e.target.value)}
                 className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400" />
             </div>
