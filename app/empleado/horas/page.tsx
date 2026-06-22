@@ -11,8 +11,11 @@ interface RegistroHora {
   id: string; fecha: string; hora_inicio: string; hora_fin: string
   total_horas: number; tipo: string; cantidad_sf: number | null
   estado: string; notas: string | null; proyecto_id: string
+  ayudante_id: string | null; horas_ayudante: number | null; pago_ayudante: number | null
   proyectos: { nombre: string; direccion: string }
 }
+
+interface Ayudante { id: string; nombre: string; apellido: string; tarifa_hora: number | null }
 
 interface Perfil {
   id: string; nombre: string; apellido: string; email: string
@@ -28,10 +31,11 @@ function calcularHoras(inicio: string, fin: string) {
   return Math.max(0, Math.round(((hF * 60 + mF) - (hI * 60 + mI)) / 60 * 100) / 100)
 }
 
-function getMontoExtra(notas: string | null): number {
-  if (!notas) return 0
-  const match = notas.match(/SF:.*?=\s*\$?([\d.]+)/)
-  return match ? parseFloat(match[1]) : 0
+function getMontoExtra(r: { notas: string | null; pago_ayudante?: number | null }): number {
+  if (!r.notas) return 0
+  const match = r.notas.match(/SF:.*?=\s*\$?([\d.]+)/)
+  const bruto = match ? parseFloat(match[1]) : 0
+  return bruto - (r.pago_ayudante ?? 0)
 }
 
 function parseExtraNotas(notas: string | null) {
@@ -42,9 +46,10 @@ function parseExtraNotas(notas: string | null) {
   for (const part of parts.slice(1)) {
     const fechaMatch = part.match(/Del (\d{4}-\d{2}-\d{2}) al (\d{4}-\d{2}-\d{2})/)
     const sfMatch = part.match(/SF:\s*([\d.]+)\s*x\s*\$([\d.]+)/)
+    const esAyudante = part.startsWith('AYUDANTE:')
     if (fechaMatch) { result.fechaInicioExtra = fechaMatch[1]; result.fechaFinExtra = fechaMatch[2] }
     else if (sfMatch) { result.cantidadSf = sfMatch[1]; result.tarifaSfExtra = sfMatch[2] }
-    else if (part) result.notas = part
+    else if (!esAyudante && part) result.notas = part
   }
   return result
 }
@@ -62,6 +67,7 @@ export default function EmpleadoHorasPage() {
   const hoy = new Date().toISOString().split('T')[0]
 
   const [proyectos, setProyectos] = useState<Proyecto[]>([])
+  const [ayudantes, setAyudantes] = useState<Ayudante[]>([])
   const [historial, setHistorial] = useState<RegistroHora[]>([])
   const [perfil, setPerfil] = useState<Perfil | null>(null)
   const [userId, setUserId] = useState('')
@@ -71,6 +77,7 @@ export default function EmpleadoHorasPage() {
     horaInicio: '', horaFin: '', cantidadSf: '',
     tarifaSfExtra: '', fechaInicioExtra: '', fechaFinExtra: '',
     descripcionExtra: '', notas: '',
+    ayudanteId: '', horasAyudante: '',
   })
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -88,12 +95,19 @@ export default function EmpleadoHorasPage() {
     ? totalHoras * (perfil?.tarifa_hora ?? 0)
     : tipo === 'sf' ? parseFloat(form.cantidadSf || '0') * (perfil?.tarifa_sf ?? 0) : 0
 
+  const ayudanteSeleccionado = ayudantes.find(a => a.id === form.ayudanteId)
+  const pagoAyudante = form.ayudanteId && form.horasAyudante
+    ? parseFloat(form.horasAyudante) * (ayudanteSeleccionado?.tarifa_hora ?? 0)
+    : 0
+  const montoSFBruto = (form.cantidadSf && form.tarifaSfExtra) ? parseFloat(form.cantidadSf) * parseFloat(form.tarifaSfExtra) : 0
+  const montoSFNeto = montoSFBruto - pagoAyudante
+
   useEffect(() => {
     async function init() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       setUserId(user.id)
-      const [prof, proy, hist] = await Promise.all([
+      const [prof, proy, hist, ayud] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).single(),
         supabase.from('proyectos').select('id, nombre, direccion').eq('activo', true),
         supabase.from('registros_horas')
@@ -102,6 +116,8 @@ export default function EmpleadoHorasPage() {
           .gte('fecha', quincena.inicio)
           .lte('fecha', quincena.fin)
           .order('fecha', { ascending: false }),
+        supabase.from('profiles').select('id, nombre, apellido, tarifa_hora')
+          .neq('role', 'admin').eq('activo', true).neq('id', user.id),
       ])
       if (prof.data) {
         setPerfil(prof.data)
@@ -110,6 +126,7 @@ export default function EmpleadoHorasPage() {
       }
       setProyectos(proy.data ?? [])
       setHistorial((hist.data as unknown as RegistroHora[]) ?? [])
+      setAyudantes(ayud.data ?? [])
     }
     init()
   }, [])
@@ -121,6 +138,7 @@ export default function EmpleadoHorasPage() {
     if ((tipo === 'hora' || tipo === 'overtime') && totalHoras <= 0) { setError('La hora de fin debe ser mayor a la de inicio.'); return }
     if (tipo === 'sf' && !form.cantidadSf) { setError('Ingresa la cantidad de SF.'); return }
     if (tipo === 'extra' && !form.descripcionExtra) { setError('Describe el trabajo extra realizado.'); return }
+    if (tipo === 'extra' && form.ayudanteId && !form.horasAyudante) { setError('Ingresa las horas trabajadas del ayudante.'); return }
 
     setLoading(true); setError('')
     const estado = (tipo === 'hora' && esHoy) ? 'aprobado' : 'pendiente'
@@ -135,11 +153,15 @@ export default function EmpleadoHorasPage() {
       tipo: tipo === 'overtime' ? 'hora' : tipo,
       cantidad_sf: tipo === 'sf' ? parseFloat(form.cantidadSf) : null,
       estado,
+      ayudante_id: tipo === 'extra' && form.ayudanteId ? form.ayudanteId : null,
+      horas_ayudante: tipo === 'extra' && form.ayudanteId && form.horasAyudante ? parseFloat(form.horasAyudante) : null,
+      pago_ayudante: tipo === 'extra' && form.ayudanteId && form.horasAyudante ? pagoAyudante : null,
       notas: tipo === 'extra'
         ? [
             `TRABAJO EXTRA: ${form.descripcionExtra}`,
             form.fechaInicioExtra ? `Del ${form.fechaInicioExtra} al ${form.fechaFinExtra || form.fechaInicioExtra}` : '',
             form.cantidadSf && form.tarifaSfExtra ? `SF: ${form.cantidadSf} x $${form.tarifaSfExtra} = $${(parseFloat(form.cantidadSf) * parseFloat(form.tarifaSfExtra)).toFixed(2)}` : '',
+            form.ayudanteId && form.horasAyudante ? `AYUDANTE: ${ayudanteSeleccionado?.nombre} ${ayudanteSeleccionado?.apellido} - ${form.horasAyudante}h x $${ayudanteSeleccionado?.tarifa_hora} = $${pagoAyudante.toFixed(2)}` : '',
             form.notas || '',
           ].filter(Boolean).join(' | ')
         : tipo === 'overtime' ? `HORAS EXTRAS${form.notas ? ` — ${form.notas}` : ''}` : form.notas || null,
@@ -161,7 +183,7 @@ export default function EmpleadoHorasPage() {
     setSuccess(true)
     setEditandoId(null)
     setTipo('hora')
-    setForm(f => ({ ...f, proyectoId: '', horaInicio: '', horaFin: '', cantidadSf: '', tarifaSfExtra: '', fechaInicioExtra: '', fechaFinExtra: '', descripcionExtra: '', notas: '' }))
+    setForm(f => ({ ...f, proyectoId: '', horaInicio: '', horaFin: '', cantidadSf: '', tarifaSfExtra: '', fechaInicioExtra: '', fechaFinExtra: '', descripcionExtra: '', notas: '', ayudanteId: '', horasAyudante: '' }))
     setLoading(false)
     const { data } = await supabase.from('registros_horas')
       .select('*, proyectos(nombre, direccion)')
@@ -179,7 +201,7 @@ export default function EmpleadoHorasPage() {
 
     if (r.tipo === 'extra') {
       const parsed = parseExtraNotas(r.notas)
-      setForm(f => ({ ...f, proyectoId: r.proyecto_id, fecha: r.fecha, ...parsed }))
+      setForm(f => ({ ...f, proyectoId: r.proyecto_id, fecha: r.fecha, ...parsed, ayudanteId: r.ayudante_id ?? '', horasAyudante: r.horas_ayudante?.toString() ?? '' }))
     } else if (esOvertime) {
       setForm(f => ({ ...f, proyectoId: r.proyecto_id, fecha: r.fecha, horaInicio: r.hora_inicio, horaFin: r.hora_fin, notas: parseOvertimeNotas(r.notas) }))
     } else {
@@ -191,7 +213,7 @@ export default function EmpleadoHorasPage() {
   function cancelarEdicion() {
     setEditandoId(null)
     setTipo('hora')
-    setForm(f => ({ ...f, proyectoId: '', fecha: hoy, horaInicio: '', horaFin: '', cantidadSf: '', tarifaSfExtra: '', fechaInicioExtra: '', fechaFinExtra: '', descripcionExtra: '', notas: '' }))
+    setForm(f => ({ ...f, proyectoId: '', fecha: hoy, horaInicio: '', horaFin: '', cantidadSf: '', tarifaSfExtra: '', fechaInicioExtra: '', fechaFinExtra: '', descripcionExtra: '', notas: '', ayudanteId: '', horasAyudante: '' }))
   }
 
   // Cálculos quincena
@@ -200,7 +222,7 @@ export default function EmpleadoHorasPage() {
   const totalSFQuincena = registrosAprobados.filter(r => r.tipo === 'sf').reduce((s, r) => s + (r.cantidad_sf ?? 0), 0)
   const gananciaHoras = totalHorasQuincena * (perfil?.tarifa_hora ?? 0)
   const gananciaSF = totalSFQuincena * (perfil?.tarifa_sf ?? 0)
-  const gananciaExtras = registrosAprobados.filter(r => r.tipo === 'extra').reduce((s, r) => s + getMontoExtra(r.notas), 0)
+  const gananciaExtras = registrosAprobados.filter(r => r.tipo === 'extra').reduce((s, r) => s + getMontoExtra(r), 0)
   const subtotal = gananciaHoras + gananciaSF + gananciaExtras
   const gstMonto = cobrarGST ? subtotal * 0.05 : 0
   const total = subtotal + gstMonto
@@ -209,6 +231,8 @@ export default function EmpleadoHorasPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     const uid = user.id
+
+    const detalleOrdenado = [...registrosAprobados].sort((a, b) => a.fecha.localeCompare(b.fecha))
 
     // Guardar GST si cambió
     if (gstInput !== perfil?.gst_number || cobrarGST !== perfil?.cobra_gst) {
@@ -231,7 +255,7 @@ export default function EmpleadoHorasPage() {
         gst: gstMonto,
         total,
         gst_number: cobrarGST ? gstInput : null,
-        detalle: registrosAprobados,
+        detalle: detalleOrdenado,
       }).eq('id', facturaExistenteId)
     } else {
       // Crear nueva factura
@@ -244,7 +268,7 @@ export default function EmpleadoHorasPage() {
         gst: gstMonto,
         total,
         gst_number: cobrarGST ? gstInput : null,
-        detalle: registrosAprobados,
+        detalle: detalleOrdenado,
       }).select('id').single()
       facturaId = nuevaFactura?.id ?? null
     }
@@ -530,9 +554,44 @@ export default function EmpleadoHorasPage() {
                 {form.cantidadSf && form.tarifaSfExtra && (
                   <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-3 flex justify-between">
                     <span className="text-sm text-amber-700">{form.cantidadSf} SF × ${form.tarifaSfExtra}</span>
-                    <span className="font-bold text-amber-800">${(parseFloat(form.cantidadSf) * parseFloat(form.tarifaSfExtra)).toFixed(2)}</span>
+                    <span className="font-bold text-amber-800">${montoSFBruto.toFixed(2)}</span>
                   </div>
                 )}
+
+                {/* Ayudante */}
+                <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Selecciona a un ayudante:</label>
+                    <select value={form.ayudanteId} onChange={e => setForm(f => ({ ...f, ayudanteId: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                      <option value="">Ninguno</option>
+                      {ayudantes.map(a => (
+                        <option key={a.id} value={a.id}>{a.nombre} {a.apellido} — ${a.tarifa_hora ?? 0}/hr</option>
+                      ))}
+                    </select>
+                  </div>
+                  {form.ayudanteId && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Horas trabajadas (del ayudante)</label>
+                      <input type="number" value={form.horasAyudante} step="0.5" min="0"
+                        onChange={e => setForm(f => ({ ...f, horasAyudante: e.target.value }))}
+                        className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        placeholder="ej. 4.5" />
+                    </div>
+                  )}
+                  {pagoAyudante > 0 && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex justify-between">
+                      <span className="text-sm text-red-700">Pago a {ayudanteSeleccionado?.nombre}: {form.horasAyudante}h × ${ayudanteSeleccionado?.tarifa_hora}</span>
+                      <span className="font-bold text-red-800">-${pagoAyudante.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {form.cantidadSf && form.tarifaSfExtra && pagoAyudante > 0 && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex justify-between">
+                      <span className="text-sm text-emerald-700">Neto para ti (ya descontado el ayudante)</span>
+                      <span className="font-bold text-emerald-800">${montoSFNeto.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

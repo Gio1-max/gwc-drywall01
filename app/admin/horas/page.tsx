@@ -110,6 +110,11 @@ export default function AdminHorasPage() {
                     <div><span className="text-slate-400">Total:</span> <span className="font-semibold text-slate-800">{r.total_horas}h</span></div>
                   </div>
                   {r.notas && <p className="mt-2 text-sm text-slate-500 italic">"{r.notas}"</p>}
+                  {r.notas?.includes('AYUDANTE:') && (
+                    <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-2 text-xs text-red-700">
+                      ⚠️ Este registro incluye pago a un ayudante — recuerda pagarle directamente.
+                    </div>
+                  )}
                 </div>
 
                 {r.estado === 'pendiente' && (

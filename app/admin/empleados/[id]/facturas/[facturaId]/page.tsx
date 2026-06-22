@@ -17,6 +17,7 @@ interface Factura {
   detalle: Array<{
     fecha: string; tipo: string; total_horas: number
     cantidad_sf: number | null; estado: string; notas: string | null
+    pago_ayudante: number | null
     proyectos: { nombre: string; direccion: string }
   }>
   created_at: string
@@ -29,10 +30,11 @@ interface Perfil {
   tarifa_hora: number | null; tarifa_sf: number | null
 }
 
-function getMontoExtra(notas: string | null): number {
-  if (!notas) return 0
-  const match = notas.match(/SF:.*?=\s*\$?([\d.]+)/)
-  return match ? parseFloat(match[1]) : 0
+function getMontoExtra(r: { notas: string | null; pago_ayudante?: number | null }): number {
+  if (!r.notas) return 0
+  const match = r.notas.match(/SF:.*?=\s*\$?([\d.]+)/)
+  const bruto = match ? parseFloat(match[1]) : 0
+  return bruto - (r.pago_ayudante ?? 0)
 }
 
 function calcularFechaPago(quincenaFin: string): string {
@@ -167,13 +169,14 @@ export default function AdminFacturaPage() {
                 ? r.total_horas * (perfil.tarifa_hora ?? 0)
                 : r.tipo === 'sf'
                 ? (r.cantidad_sf ?? 0) * (perfil.tarifa_sf ?? 0)
-                : getMontoExtra(r.notas)
+                : getMontoExtra(r)
               const descripcion = r.notas?.startsWith('TRABAJO EXTRA:')
                 ? r.notas.split('|')[0].replace('TRABAJO EXTRA:', '').trim()
                 : r.tipo === 'hora' ? 'Boarding Labour'
                 : r.tipo === 'sf' ? 'Boarding Labour (SF)'
                 : 'Extra Work'
               const sfMatch = r.tipo === 'extra' ? r.notas?.match(/SF:\s*([\d.]+)\s*x\s*\$([\d.]+)/) : null
+              const ayudanteMatch = r.tipo === 'extra' ? r.notas?.match(/AYUDANTE:\s*([^|]+?)\s*-\s*[\d.]+h/) : null
               const horas = r.tipo === 'hora'
                 ? `${r.total_horas}h`
                 : r.tipo === 'sf'
@@ -181,7 +184,12 @@ export default function AdminFacturaPage() {
                 : sfMatch ? `${sfMatch[1]} SF × $${sfMatch[2]}` : '—'
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                  <td className="px-3 py-2 text-xs text-slate-700">{descripcion}</td>
+                  <td className="px-3 py-2 text-xs text-slate-700">
+                    {descripcion}
+                    {ayudanteMatch && r.pago_ayudante && (
+                      <p className="text-[10px] text-slate-400 italic mt-0.5">Helper: {ayudanteMatch[1].trim()} (−${r.pago_ayudante.toFixed(2)}) — pay directly</p>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-xs text-slate-500">{r.proyectos?.direccion ?? r.proyectos?.nombre}</td>
                   <td className="px-3 py-2 text-xs text-slate-500 text-center">{new Date(r.fecha + 'T00:00:00').toLocaleDateString('es-CA', { day: '2-digit', month: 'short' })}</td>
                   <td className="px-3 py-2 text-xs text-slate-600 text-right">{horas}</td>
