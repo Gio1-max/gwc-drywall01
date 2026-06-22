@@ -39,6 +39,18 @@ export default function ProyectosPage() {
     loadProyectos()
   }
 
+  async function eliminarProyecto(id: string, nombre: string) {
+    if (!confirm(`¿Eliminar el proyecto "${nombre}"? Esto borrará también sus horas, gastos y trabajos extras registrados. Esta acción no se puede revertir.`)) return
+    await Promise.all([
+      supabase.from('trabajos_extras').delete().eq('proyecto_id', id),
+      supabase.from('gastos_proyecto').delete().eq('proyecto_id', id),
+      supabase.from('registros_horas').delete().eq('proyecto_id', id),
+    ])
+    const { error } = await supabase.from('proyectos').delete().eq('id', id)
+    if (error) { alert('No se pudo eliminar: ' + error.message); return }
+    setProyectos(p => p.filter(x => x.id !== id))
+  }
+
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
@@ -120,12 +132,20 @@ export default function ProyectosPage() {
                 >
                   Ver detalle →
                 </Link>
-                <button
-                  onClick={() => toggleActivo(p.id, p.activo)}
-                  className="text-xs text-slate-400 hover:text-slate-600"
-                >
-                  {p.activo ? 'Marcar terminado' : 'Reactivar'}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => toggleActivo(p.id, p.activo)}
+                    className="text-xs text-slate-400 hover:text-slate-600"
+                  >
+                    {p.activo ? 'Marcar terminado' : 'Reactivar'}
+                  </button>
+                  <button
+                    onClick={() => eliminarProyecto(p.id, p.nombre)}
+                    className="text-xs text-red-400 hover:text-red-600"
+                  >
+                    Eliminar
+                  </button>
+                </div>
               </div>
             </div>
           ))}
