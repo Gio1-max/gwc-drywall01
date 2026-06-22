@@ -10,7 +10,7 @@ interface Proyecto { id: string; nombre: string; direccion: string }
 interface RegistroHora {
   id: string; fecha: string; hora_inicio: string; hora_fin: string
   total_horas: number; tipo: string; cantidad_sf: number | null
-  estado: string; notas: string | null
+  estado: string; notas: string | null; proyecto_id: string
   proyectos: { nombre: string; direccion: string }
 }
 
@@ -32,6 +32,27 @@ function getMontoExtra(notas: string | null): number {
   if (!notas) return 0
   const match = notas.match(/SF:.*?=\s*\$?([\d.]+)/)
   return match ? parseFloat(match[1]) : 0
+}
+
+function parseExtraNotas(notas: string | null) {
+  const result = { descripcionExtra: '', fechaInicioExtra: '', fechaFinExtra: '', cantidadSf: '', tarifaSfExtra: '', notas: '' }
+  if (!notas) return result
+  const parts = notas.split(' | ')
+  result.descripcionExtra = parts[0]?.replace('TRABAJO EXTRA:', '').trim() ?? ''
+  for (const part of parts.slice(1)) {
+    const fechaMatch = part.match(/Del (\d{4}-\d{2}-\d{2}) al (\d{4}-\d{2}-\d{2})/)
+    const sfMatch = part.match(/SF:\s*([\d.]+)\s*x\s*\$([\d.]+)/)
+    if (fechaMatch) { result.fechaInicioExtra = fechaMatch[1]; result.fechaFinExtra = fechaMatch[2] }
+    else if (sfMatch) { result.cantidadSf = sfMatch[1]; result.tarifaSfExtra = sfMatch[2] }
+    else if (part) result.notas = part
+  }
+  return result
+}
+
+function parseOvertimeNotas(notas: string | null): string {
+  if (!notas) return ''
+  const match = notas.match(/HORAS EXTRAS — (.*)/)
+  return match ? match[1] : ''
 }
 
 export default function EmpleadoHorasPage() {
@@ -59,6 +80,7 @@ export default function EmpleadoHorasPage() {
   const [gstInput, setGstInput] = useState('')
   const [cobrarGST, setCobrarGST] = useState(false)
   const [facturaExistenteId, setFacturaExistenteId] = useState<string | null>(null)
+  const [editandoId, setEditandoId] = useState<string | null>(null)
 
   const esHoy = form.fecha === hoy
   const totalHoras = (form.horaInicio && form.horaFin) ? calcularHoras(form.horaInicio, form.horaFin) : 0
@@ -103,7 +125,7 @@ export default function EmpleadoHorasPage() {
     setLoading(true); setError('')
     const estado = (tipo === 'hora' && esHoy) ? 'aprobado' : 'pendiente'
 
-    const { error: err } = await supabase.from('registros_horas').insert({
+    const registro = {
       empleado_id: userId,
       proyecto_id: form.proyectoId,
       fecha: form.fecha,
@@ -121,11 +143,15 @@ export default function EmpleadoHorasPage() {
             form.notas || '',
           ].filter(Boolean).join(' | ')
         : tipo === 'overtime' ? `HORAS EXTRAS${form.notas ? ` — ${form.notas}` : ''}` : form.notas || null,
-    })
+    }
+
+    const { error: err } = editandoId
+      ? await supabase.from('registros_horas').update(registro).eq('id', editandoId)
+      : await supabase.from('registros_horas').insert(registro)
 
     if (err) { setError('Error al guardar. Intenta de nuevo.'); setLoading(false); return }
 
-    if (estado === 'pendiente' && perfil) {
+    if (estado === 'pendiente' && perfil && !editandoId) {
       await fetch('/api/notificar-admin', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nombre: `${perfil.nombre} ${perfil.apellido}`, fecha: form.fecha }),
@@ -133,7 +159,9 @@ export default function EmpleadoHorasPage() {
     }
 
     setSuccess(true)
-    setForm(f => ({ ...f, horaInicio: '', horaFin: '', cantidadSf: '', tarifaSfExtra: '', fechaInicioExtra: '', fechaFinExtra: '', descripcionExtra: '', notas: '' }))
+    setEditandoId(null)
+    setTipo('hora')
+    setForm(f => ({ ...f, proyectoId: '', horaInicio: '', horaFin: '', cantidadSf: '', tarifaSfExtra: '', fechaInicioExtra: '', fechaFinExtra: '', descripcionExtra: '', notas: '' }))
     setLoading(false)
     const { data } = await supabase.from('registros_horas')
       .select('*, proyectos(nombre, direccion)')
@@ -142,6 +170,28 @@ export default function EmpleadoHorasPage() {
       .order('fecha', { ascending: false })
     setHistorial((data as unknown as RegistroHora[]) ?? [])
     setTimeout(() => setSuccess(false), 3000)
+  }
+
+  function iniciarEdicion(r: RegistroHora) {
+    setEditandoId(r.id)
+    const esOvertime = r.tipo === 'hora' && r.notas?.startsWith('HORAS EXTRAS')
+    setTipo(esOvertime ? 'overtime' : (r.tipo as typeof tipo))
+
+    if (r.tipo === 'extra') {
+      const parsed = parseExtraNotas(r.notas)
+      setForm(f => ({ ...f, proyectoId: r.proyecto_id, fecha: r.fecha, ...parsed }))
+    } else if (esOvertime) {
+      setForm(f => ({ ...f, proyectoId: r.proyecto_id, fecha: r.fecha, horaInicio: r.hora_inicio, horaFin: r.hora_fin, notas: parseOvertimeNotas(r.notas) }))
+    } else {
+      setForm(f => ({ ...f, proyectoId: r.proyecto_id, fecha: r.fecha, horaInicio: r.hora_inicio, horaFin: r.hora_fin, cantidadSf: r.cantidad_sf?.toString() ?? '', notas: r.notas ?? '' }))
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function cancelarEdicion() {
+    setEditandoId(null)
+    setTipo('hora')
+    setForm(f => ({ ...f, proyectoId: '', fecha: hoy, horaInicio: '', horaFin: '', cantidadSf: '', tarifaSfExtra: '', fechaInicioExtra: '', fechaFinExtra: '', descripcionExtra: '', notas: '' }))
   }
 
   // Cálculos quincena
@@ -362,7 +412,14 @@ export default function EmpleadoHorasPage() {
 
       {/* Formulario registro */}
       <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-        <h2 className="font-semibold text-slate-700 mb-4">Registrar Trabajo</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-slate-700">{editandoId ? 'Editar Registro' : 'Registrar Trabajo'}</h2>
+          {editandoId && (
+            <button type="button" onClick={cancelarEdicion} className="text-xs text-slate-400 hover:text-slate-600">
+              Cancelar edición
+            </button>
+          )}
+        </div>
 
         <div className="grid grid-cols-2 gap-2 mb-4">
           {[
@@ -502,7 +559,7 @@ export default function EmpleadoHorasPage() {
 
           <button type="submit" disabled={loading}
             className="w-full bg-amber-400 hover:bg-amber-500 disabled:bg-amber-200 text-slate-900 font-semibold py-3 rounded-lg transition-colors">
-            {loading ? 'Guardando...' : 'Guardar Registro'}
+            {loading ? 'Guardando...' : editandoId ? 'Guardar Cambios' : 'Guardar Registro'}
           </button>
         </form>
       </div>
@@ -533,12 +590,19 @@ export default function EmpleadoHorasPage() {
                         </span>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${estadoColor[r.estado] ?? ''}`}>{r.estado}</span>
                         <button
+                          onClick={() => iniciarEdicion(r)}
+                          className="ml-1 text-slate-300 hover:text-amber-500 transition-colors text-sm"
+                          title="Editar"
+                        >
+                          ✎
+                        </button>
+                        <button
                           onClick={async () => {
                             if (!confirm('¿Eliminar este registro?')) return
                             await supabase.from('registros_horas').delete().eq('id', r.id)
                             setHistorial(h => h.filter(x => x.id !== r.id))
                           }}
-                          className="ml-1 text-slate-300 hover:text-red-500 transition-colors text-lg leading-none"
+                          className="text-slate-300 hover:text-red-500 transition-colors text-lg leading-none"
                           title="Eliminar"
                         >
                           ×

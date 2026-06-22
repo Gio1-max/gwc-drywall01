@@ -34,11 +34,12 @@ function calcularFechaPago(quincenaFin: string): string {
   const dia = fin.getDate()
   let fechaPago: Date
   if (dia === 15) {
-    // Q1 → pago el 16 del mismo mes
-    fechaPago = new Date(fin.getFullYear(), fin.getMonth(), 16)
+    // Q1 terminó → la siguiente quincena (16-fin de mes) termina al final del mes
+    const ultimoDia = new Date(fin.getFullYear(), fin.getMonth() + 1, 0).getDate()
+    fechaPago = new Date(fin.getFullYear(), fin.getMonth(), ultimoDia)
   } else {
-    // Q2 → pago el 1ro del siguiente mes
-    fechaPago = new Date(fin.getFullYear(), fin.getMonth() + 1, 1)
+    // Q2 terminó → la siguiente quincena (1-15 del siguiente mes) termina el 15
+    fechaPago = new Date(fin.getFullYear(), fin.getMonth() + 1, 15)
   }
   return fechaPago.toLocaleDateString('es-CA', { day: '2-digit', month: 'long', year: 'numeric' })
 }
@@ -117,15 +118,15 @@ export default function FacturaDetallePage() {
       </div>
 
       {/* Factura imprimible */}
-      <div id="factura" className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-8 print:rounded-none print:border-none print:shadow-none print:p-6">
+      <div id="factura" className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 print:rounded-none print:border-none print:shadow-none print:p-6 text-xs">
 
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-6 pb-6 border-b-2 border-slate-800 gap-3">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-4 pb-4 border-b-2 border-slate-800 gap-2">
           <div>
-            <h1 className="text-2xl font-black text-slate-900">INVOICE</h1>
-            <p className="text-slate-500 text-sm mt-1">{formatNumeroFactura(factura.numero_factura)}</p>
+            <h1 className="text-lg font-black text-slate-900">INVOICE</h1>
+            <p className="text-slate-500 text-xs mt-0.5">{formatNumeroFactura(factura.numero_factura)}</p>
           </div>
-          <div className="sm:text-right text-sm text-slate-600 space-y-0.5">
+          <div className="sm:text-right text-xs text-slate-600 space-y-0.5">
             <p><span className="font-semibold">Issue Date:</span> {fechaEmision}</p>
             <p><span className="font-semibold">Period:</span> {formatFecha(factura.quincena_inicio)} – {formatFecha(factura.quincena_fin)}</p>
             <p><span className="font-semibold">Payment Due:</span> {fechaPago}</p>
@@ -133,39 +134,39 @@ export default function FacturaDetallePage() {
         </div>
 
         {/* Partes */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
           {/* Emisor (empleado) */}
           <div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">From</p>
-            <p className="font-bold text-slate-800 text-lg">{perfil.nombre} {perfil.apellido}</p>
-            {perfil.direccion && <p className="text-sm text-slate-600">{perfil.direccion}</p>}
-            {perfil.telefono && <p className="text-sm text-slate-600">{perfil.telefono}</p>}
-            <p className="text-sm text-slate-600">{perfil.email}</p>
-            {perfil.sin_number && <p className="text-sm text-slate-500 mt-1">SIN: {perfil.sin_number}</p>}
-            {factura.gst_number && <p className="text-sm text-slate-500">GST#: {factura.gst_number}</p>}
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">From</p>
+            <p className="font-bold text-slate-800 text-sm">{perfil.nombre} {perfil.apellido}</p>
+            {perfil.direccion && <p className="text-xs text-slate-600">{perfil.direccion}</p>}
+            {perfil.telefono && <p className="text-xs text-slate-600">{perfil.telefono}</p>}
+            <p className="text-xs text-slate-600">{perfil.email}</p>
+            {perfil.sin_number && <p className="text-xs text-slate-500 mt-1">SIN: {perfil.sin_number}</p>}
+            {factura.gst_number && <p className="text-xs text-slate-500">GST#: {factura.gst_number}</p>}
           </div>
 
           {/* Receptor (GWC) */}
           <div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Bill To</p>
-            <p className="font-bold text-slate-800 text-lg">GWC DRYWALL CONSTRUCTION LTD</p>
-            <p className="text-sm text-slate-600">79 Sage Hill Lane NW</p>
-            <p className="text-sm text-slate-600">Calgary, AB T2G 1T2</p>
-            <p className="text-sm text-slate-600">gwcdrywallconstructionltd@gmail.com</p>
-            <p className="text-sm text-slate-500 mt-1">GST#: 733595425RT0001</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bill To</p>
+            <p className="font-bold text-slate-800 text-sm">GWC DRYWALL CONSTRUCTION LTD</p>
+            <p className="text-xs text-slate-600">79 Sage Hill Lane NW</p>
+            <p className="text-xs text-slate-600">Calgary, AB T2G 1T2</p>
+            <p className="text-xs text-slate-600">gwcdrywallconstructionltd@gmail.com</p>
+            <p className="text-xs text-slate-500 mt-1">GST#: 733595425RT0001</p>
           </div>
         </div>
 
         {/* Tabla de servicios */}
-        <div className="overflow-x-auto -mx-4 sm:mx-0 mb-6">
-        <table className="w-full min-w-[500px] sm:min-w-0">
+        <div className="overflow-x-auto -mx-4 sm:mx-0 mb-5">
+        <table className="w-full min-w-[480px] sm:min-w-0">
           <thead>
             <tr className="bg-slate-800 text-white">
-              <th className="text-left px-4 py-2.5 text-sm font-semibold rounded-tl-lg">Description</th>
-              <th className="text-left px-4 py-2.5 text-sm font-semibold">Project</th>
-              <th className="text-center px-4 py-2.5 text-sm font-semibold">Date</th>
-              <th className="text-right px-4 py-2.5 text-sm font-semibold">Hours</th>
-              <th className="text-right px-4 py-2.5 text-sm font-semibold rounded-tr-lg">Amount</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold rounded-tl-lg">Description</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold">Project</th>
+              <th className="text-center px-3 py-2 text-xs font-semibold">Date</th>
+              <th className="text-right px-3 py-2 text-xs font-semibold">Hours</th>
+              <th className="text-right px-3 py-2 text-xs font-semibold rounded-tr-lg">Amount</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -189,11 +190,11 @@ export default function FacturaDetallePage() {
                 : sfMatch ? `${sfMatch[1]} SF × $${sfMatch[2]}` : '—'
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                  <td className="px-4 py-3 text-sm text-slate-700">{descripcion}</td>
-                  <td className="px-4 py-3 text-sm text-slate-500">{r.proyectos?.direccion ?? r.proyectos?.nombre}</td>
-                  <td className="px-4 py-3 text-sm text-slate-500 text-center">{new Date(r.fecha + 'T00:00:00').toLocaleDateString('es-CA', { day: '2-digit', month: 'short' })}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600 text-right">{horas}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-slate-800 text-right">${monto.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-xs text-slate-700">{descripcion}</td>
+                  <td className="px-3 py-2 text-xs text-slate-500">{r.proyectos?.direccion ?? r.proyectos?.nombre}</td>
+                  <td className="px-3 py-2 text-xs text-slate-500 text-center">{new Date(r.fecha + 'T00:00:00').toLocaleDateString('es-CA', { day: '2-digit', month: 'short' })}</td>
+                  <td className="px-3 py-2 text-xs text-slate-600 text-right">{horas}</td>
+                  <td className="px-3 py-2 text-xs font-medium text-slate-800 text-right">${monto.toFixed(2)}</td>
                 </tr>
               )
             })}
@@ -203,18 +204,18 @@ export default function FacturaDetallePage() {
 
         {/* Totales */}
         <div className="flex justify-end">
-          <div className="w-64">
-            <div className="flex justify-between py-2 text-sm text-slate-600 border-b border-slate-100">
+          <div className="w-56">
+            <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
               <span>Subtotal</span>
               <span>${factura.subtotal.toFixed(2)}</span>
             </div>
             {factura.gst > 0 && (
-              <div className="flex justify-between py-2 text-sm text-slate-600 border-b border-slate-100">
+              <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
                 <span>GST (5%)</span>
                 <span>${factura.gst.toFixed(2)}</span>
               </div>
             )}
-            <div className="flex justify-between py-3 font-bold text-slate-800 text-lg">
+            <div className="flex justify-between py-2 font-bold text-slate-800 text-sm">
               <span>TOTAL</span>
               <span>${factura.total.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
             </div>
@@ -223,13 +224,13 @@ export default function FacturaDetallePage() {
 
         {/* E-Transfer info */}
         {perfil.email_etransfer && (
-          <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm">
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs">
             <p className="font-semibold text-amber-800 mb-1">Payment Information</p>
             <p className="text-amber-700">Please send payment via E-Transfer to: <strong>{perfil.email_etransfer}</strong></p>
           </div>
         )}
 
-        <div className="mt-8 pt-4 border-t border-slate-100 text-center text-xs text-slate-400">
+        <div className="mt-6 pt-3 border-t border-slate-100 text-center text-[10px] text-slate-400">
           Invoice issued {fechaEmision} · GWC Drywall Construction Ltd. · Calgary, AB
         </div>
       </div>
