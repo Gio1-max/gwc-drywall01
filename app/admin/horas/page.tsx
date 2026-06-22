@@ -29,7 +29,7 @@ export default function AdminHorasPage() {
     setLoading(true)
     let query = supabase
       .from('registros_horas')
-      .select('*, profiles(nombre, apellido, email), proyectos(nombre)')
+      .select('*, profiles!registros_horas_empleado_id_fkey(nombre, apellido, email), proyectos(nombre)')
       .order('created_at', { ascending: false })
 
     if (filtro !== 'todos') query = query.eq('estado', filtro)

@@ -87,7 +87,7 @@ export default function DetalleProyectoPage() {
     const [proy, ext, hrs, gsts, cls] = await Promise.all([
       supabase.from('proyectos').select('*').eq('id', id).single(),
       supabase.from('trabajos_extras').select('*').eq('proyecto_id', id),
-      supabase.from('registros_horas').select('*, profiles(nombre, apellido)').eq('proyecto_id', id).order('fecha', { ascending: false }),
+      supabase.from('registros_horas').select('*, profiles!registros_horas_empleado_id_fkey(nombre, apellido)').eq('proyecto_id', id).order('fecha', { ascending: false }),
       supabase.from('gastos_proyecto').select('*').eq('proyecto_id', id).order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
     ])
