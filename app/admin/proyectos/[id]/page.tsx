@@ -34,8 +34,19 @@ interface RegistroHora {
   hora_inicio: string
   hora_fin: string
   total_horas: number
+  tipo: string
+  cantidad_sf: number | null
+  notas: string | null
+  pago_ayudante: number | null
   estado: string
-  profiles: { nombre: string; apellido: string }
+  profiles: { nombre: string; apellido: string; tarifa_hora: number | null; tarifa_sf: number | null }
+}
+
+function getMontoExtra(notas: string | null, pagoAyudante: number | null): number {
+  if (!notas) return 0
+  const match = notas.match(/SF:.*?=\s*\$?([\d.]+)/)
+  const bruto = match ? parseFloat(match[1]) : 0
+  return bruto - (pagoAyudante ?? 0)
 }
 
 interface GastoProyecto {
@@ -87,7 +98,7 @@ export default function DetalleProyectoPage() {
     const [proy, ext, hrs, gsts, cls] = await Promise.all([
       supabase.from('proyectos').select('*').eq('id', id).single(),
       supabase.from('trabajos_extras').select('*').eq('proyecto_id', id),
-      supabase.from('registros_horas').select('*, profiles!registros_horas_empleado_id_fkey(nombre, apellido)').eq('proyecto_id', id).order('fecha', { ascending: false }),
+      supabase.from('registros_horas').select('*, profiles!registros_horas_empleado_id_fkey(nombre, apellido, tarifa_hora, tarifa_sf)').eq('proyecto_id', id).order('fecha', { ascending: false }),
       supabase.from('gastos_proyecto').select('*').eq('proyecto_id', id).order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
     ])
@@ -153,8 +164,14 @@ export default function DetalleProyectoPage() {
   const ingreso_extras = extras.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
   const ingreso_total = ingreso_base + ingreso_extras
   const totalGastos = gastos.reduce((s, g) => s + g.monto, 0)
-  const totalHoras = horas.filter(h => h.estado === 'aprobado').reduce((s, h) => s + h.total_horas, 0)
-  const utilidad = ingreso_total - totalGastos
+  const horasAprobadas = horas.filter(h => h.estado === 'aprobado')
+  const totalHoras = horasAprobadas.reduce((s, h) => s + h.total_horas, 0)
+  const totalManoObra = horasAprobadas.reduce((s, h) => {
+    if (h.tipo === 'hora') return s + h.total_horas * (h.profiles?.tarifa_hora ?? 0)
+    if (h.tipo === 'sf') return s + (h.cantidad_sf ?? 0) * (h.profiles?.tarifa_sf ?? 0)
+    return s + getMontoExtra(h.notas, h.pago_ayudante)
+  }, 0)
+  const utilidad = ingreso_total - totalGastos - totalManoObra
 
   async function handleGuardar(e: React.FormEvent) {
     e.preventDefault()
@@ -238,7 +255,7 @@ export default function DetalleProyectoPage() {
       </div>
 
       {/* Resumen */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
           <p className="text-xs text-slate-400">Ingreso Boarding</p>
           <p className="text-xl font-bold text-slate-800">${ingreso_base.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</p>
@@ -251,8 +268,12 @@ export default function DetalleProyectoPage() {
           <p className="text-xs text-slate-400">Gastos</p>
           <p className="text-xl font-bold text-red-500">${totalGastos.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</p>
         </div>
+        <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
+          <p className="text-xs text-slate-400">Mano de Obra · {totalHoras}h</p>
+          <p className="text-xl font-bold text-red-500">${totalManoObra.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</p>
+        </div>
         <div className={`rounded-xl p-4 border shadow-sm ${utilidad >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-          <p className="text-xs text-slate-500">Utilidad · {totalHoras}h</p>
+          <p className="text-xs text-slate-500">Utilidad</p>
           <p className={`text-xl font-bold ${utilidad >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
             ${utilidad.toLocaleString('en-CA', { minimumFractionDigits: 2 })}
           </p>

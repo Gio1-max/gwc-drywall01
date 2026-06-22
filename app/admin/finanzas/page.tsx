@@ -32,24 +32,13 @@ function getMontoExtra(notas: string | null, pagoAyudante: number | null): numbe
   return bruto - (pagoAyudante ?? 0)
 }
 
-function generarQuincenas(mesesAtras: number, mesesAdelante: number): Quincena[] {
-  const lista: Quincena[] = []
-  const hoy = new Date()
-  for (let offset = -mesesAtras; offset <= mesesAdelante; offset++) {
-    const base = new Date(hoy.getFullYear(), hoy.getMonth() + offset, 1)
-    lista.push(getQuincenaActual(new Date(base.getFullYear(), base.getMonth(), 1)))
-    lista.push(getQuincenaActual(new Date(base.getFullYear(), base.getMonth(), 16)))
-  }
-  return lista
-}
-
 export default function FinanzasPage() {
   const supabase = createClient()
-  const quincenas = generarQuincenas(6, 3)
   const quincenaHoy = getQuincenaActual()
 
   const [loading, setLoading] = useState(true)
-  const [quincenaKey, setQuincenaKey] = useState(`${quincenaHoy.inicio}_${quincenaHoy.fin}`)
+  const [quincenaKey, setQuincenaKey] = useState<string | null>(null)
+  const [quincenasDetectadas, setQuincenasDetectadas] = useState<Quincena[]>([])
   const [proyectos, setProyectos] = useState<Proyecto[]>([])
   const [extras, setExtras] = useState<TrabajoExtra[]>([])
   const [gastos, setGastos] = useState<GastoProyecto[]>([])
@@ -73,12 +62,29 @@ export default function FinanzasPage() {
       supabase.from('configuracion').select('meta_quincenal').eq('id', 1).single(),
     ])
 
-    setProyectos(proy.data ?? [])
+    const proyectosData: Proyecto[] = proy.data ?? []
+    setProyectos(proyectosData)
     setExtras(ext.data ?? [])
     setGastos(gst.data ?? [])
     setRegistrosCosto((hrs.data as unknown as RegistroHoraCosto[]) ?? [])
     setMeta(conf.data?.meta_quincenal ?? 0)
     setMetaInput((conf.data?.meta_quincenal ?? 0).toString())
+
+    // Detectar quincenas que realmente tienen proyectos, más la quincena actual
+    const claves = new Set<string>()
+    for (const p of proyectosData) {
+      const fechaClave = p.fecha_fin_estimada ?? p.fecha_inicio
+      if (!fechaClave) continue
+      const q = getQuincenaActual(new Date(fechaClave + 'T00:00:00'))
+      claves.add(`${q.inicio}_${q.fin}`)
+    }
+    claves.add(`${quincenaHoy.inicio}_${quincenaHoy.fin}`)
+    const detectadas = Array.from(claves)
+      .map(key => getQuincenaActual(new Date(key.split('_')[0] + 'T00:00:00')))
+      .sort((a, b) => a.inicio.localeCompare(b.inicio))
+    setQuincenasDetectadas(detectadas)
+    setQuincenaKey(prev => prev ?? `${quincenaHoy.inicio}_${quincenaHoy.fin}`)
+
     setLoading(false)
   }
 
@@ -89,7 +95,7 @@ export default function FinanzasPage() {
     setEditandoMeta(false)
   }
 
-  const quincenaSel = quincenas.find(q => `${q.inicio}_${q.fin}` === quincenaKey) ?? quincenaHoy
+  const quincenaSel = quincenasDetectadas.find(q => `${q.inicio}_${q.fin}` === quincenaKey) ?? quincenaHoy
 
   // Filtrar proyectos cuya fecha de término (o inicio si no hay término) cae en la quincena seleccionada
   const proyectosFiltrados = proyectos.filter(p => {
@@ -133,9 +139,9 @@ export default function FinanzasPage() {
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-500 mb-1">Quincena a consultar</label>
-          <select value={quincenaKey} onChange={e => setQuincenaKey(e.target.value)}
+          <select value={quincenaKey ?? ''} onChange={e => setQuincenaKey(e.target.value)}
             className="px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400 min-w-[240px]">
-            {quincenas.map(q => (
+            {quincenasDetectadas.map(q => (
               <option key={`${q.inicio}_${q.fin}`} value={`${q.inicio}_${q.fin}`}>{q.label}</option>
             ))}
           </select>
