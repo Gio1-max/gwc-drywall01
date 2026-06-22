@@ -184,11 +184,12 @@ export default function EmpleadoHorasPage() {
         : tipo === 'overtime' ? `HORAS EXTRAS${form.notas ? ` — ${form.notas}` : ''}` : form.notas || null,
     }
 
-    const { error: err } = editandoId
-      ? await supabase.from('registros_horas').update(registro).eq('id', editandoId)
-      : await supabase.from('registros_horas').insert(registro)
+    const { data: savedRows, error: err } = editandoId
+      ? await supabase.from('registros_horas').update(registro).eq('id', editandoId).select('id')
+      : await supabase.from('registros_horas').insert(registro).select('id')
 
-    if (err) { setError('Error al guardar. Intenta de nuevo.'); setLoading(false); return }
+    if (err) { setError('Error al guardar: ' + err.message); setLoading(false); return }
+    if (!savedRows || savedRows.length === 0) { setError('No se pudo guardar el registro (sin permisos). Contacta al administrador.'); setLoading(false); return }
 
     if (estado === 'pendiente' && perfil && !editandoId) {
       await fetch('/api/notificar-admin', {
