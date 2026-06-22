@@ -1,7 +1,24 @@
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 export async function POST(req: Request) {
+  const supabaseServer = await createServerClient()
+  const { data: { user } } = await supabaseServer.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+  }
+
+  const { data: caller } = await supabaseServer
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (caller?.role !== 'admin') {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  }
+
   const { empleadoId, nuevoEmail } = await req.json()
   if (!empleadoId || !nuevoEmail) {
     return NextResponse.json({ error: 'Faltan datos' }, { status: 400 })
