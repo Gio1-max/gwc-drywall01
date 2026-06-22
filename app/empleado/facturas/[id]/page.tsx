@@ -185,7 +185,6 @@ export default function FacturaDetallePage() {
                 : 'Extra Work'
               // Extract SF info from notas for display
               const sfMatch = r.tipo === 'extra' ? r.notas?.match(/SF:\s*([\d.]+)\s*x\s*\$([\d.]+)/) : null
-              const ayudanteMatch = r.tipo === 'extra' ? r.notas?.match(/AYUDANTE:\s*([^|]+?)\s*-\s*[\d.]+h/) : null
               const horas = r.tipo === 'hora'
                 ? `${r.total_horas}h`
                 : r.tipo === 'sf'
@@ -193,12 +192,7 @@ export default function FacturaDetallePage() {
                 : sfMatch ? `${sfMatch[1]} SF × $${sfMatch[2]}` : '—'
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                  <td className="px-3 py-2 text-xs text-slate-700">
-                    {descripcion}
-                    {ayudanteMatch && r.pago_ayudante && (
-                      <p className="text-[10px] text-slate-400 italic mt-0.5">Helper: {ayudanteMatch[1].trim()} (−${r.pago_ayudante.toFixed(2)})</p>
-                    )}
-                  </td>
+                  <td className="px-3 py-2 text-xs text-slate-700">{descripcion}</td>
                   <td className="px-3 py-2 text-xs text-slate-500">{r.proyectos?.direccion ?? r.proyectos?.nombre}</td>
                   <td className="px-3 py-2 text-xs text-slate-500 text-center">{new Date(r.fecha + 'T00:00:00').toLocaleDateString('es-CA', { day: '2-digit', month: 'short' })}</td>
                   <td className="px-3 py-2 text-xs text-slate-600 text-right">{horas}</td>

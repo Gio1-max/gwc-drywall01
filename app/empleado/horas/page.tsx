@@ -161,7 +161,7 @@ export default function EmpleadoHorasPage() {
             `TRABAJO EXTRA: ${form.descripcionExtra}`,
             form.fechaInicioExtra ? `Del ${form.fechaInicioExtra} al ${form.fechaFinExtra || form.fechaInicioExtra}` : '',
             form.cantidadSf && form.tarifaSfExtra ? `SF: ${form.cantidadSf} x $${form.tarifaSfExtra} = $${(parseFloat(form.cantidadSf) * parseFloat(form.tarifaSfExtra)).toFixed(2)}` : '',
-            form.ayudanteId && form.horasAyudante ? `AYUDANTE: ${ayudanteSeleccionado?.nombre} ${ayudanteSeleccionado?.apellido} - ${form.horasAyudante}h x $${ayudanteSeleccionado?.tarifa_hora} = $${pagoAyudante.toFixed(2)}` : '',
+            form.ayudanteId && form.horasAyudante ? `AYUDANTE: ${ayudanteSeleccionado?.nombre} ${ayudanteSeleccionado?.apellido} - ${form.horasAyudante}h` : '',
             form.notas || '',
           ].filter(Boolean).join(' | ')
         : tipo === 'overtime' ? `HORAS EXTRAS${form.notas ? ` — ${form.notas}` : ''}` : form.notas || null,
@@ -566,7 +566,7 @@ export default function EmpleadoHorasPage() {
                       className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400">
                       <option value="">Ninguno</option>
                       {ayudantes.map(a => (
-                        <option key={a.id} value={a.id}>{a.nombre} {a.apellido} — ${a.tarifa_hora ?? 0}/hr</option>
+                        <option key={a.id} value={a.id}>{a.nombre} {a.apellido}</option>
                       ))}
                     </select>
                   </div>
@@ -577,12 +577,6 @@ export default function EmpleadoHorasPage() {
                         onChange={e => setForm(f => ({ ...f, horasAyudante: e.target.value }))}
                         className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400"
                         placeholder="ej. 4.5" />
-                    </div>
-                  )}
-                  {pagoAyudante > 0 && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex justify-between">
-                      <span className="text-sm text-red-700">Pago a {ayudanteSeleccionado?.nombre}: {form.horasAyudante}h × ${ayudanteSeleccionado?.tarifa_hora}</span>
-                      <span className="font-bold text-red-800">-${pagoAyudante.toFixed(2)}</span>
                     </div>
                   )}
                   {form.cantidadSf && form.tarifaSfExtra && pagoAyudante > 0 && (
@@ -658,7 +652,8 @@ export default function EmpleadoHorasPage() {
                         <button
                           onClick={async () => {
                             if (!confirm('¿Eliminar este registro?')) return
-                            await supabase.from('registros_horas').delete().eq('id', r.id)
+                            const { error: delErr } = await supabase.from('registros_horas').delete().eq('id', r.id)
+                            if (delErr) { alert('No se pudo eliminar: ' + delErr.message); return }
                             setHistorial(h => h.filter(x => x.id !== r.id))
                           }}
                           className="text-slate-300 hover:text-red-500 transition-colors text-lg leading-none"
