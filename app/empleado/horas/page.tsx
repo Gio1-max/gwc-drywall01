@@ -25,6 +25,14 @@ interface Perfil {
   gst_number: string | null; cobra_gst: boolean
 }
 
+interface QuincenaGrupo {
+  inicio: string; fin: string; label: string
+  registros: RegistroHora[]
+  totalHoras: number; totalSF: number
+  gananciaHoras: number; gananciaSF: number; gananciaExtras: number
+  subtotal: number
+}
+
 function calcularHoras(inicio: string, fin: string) {
   const [hI, mI] = inicio.split(':').map(Number)
   const [hF, mF] = fin.split(':').map(Number)
@@ -65,6 +73,11 @@ export default function EmpleadoHorasPage() {
   const supabase = createClient()
   const quincena = getQuincenaActual()
   const hoy = new Date().toISOString().split('T')[0]
+  const fechaMinima = (() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 60)
+    return d.toISOString().split('T')[0]
+  })()
 
   const [proyectos, setProyectos] = useState<Proyecto[]>([])
   const [ayudantes, setAyudantes] = useState<Ayudante[]>([])
@@ -88,6 +101,7 @@ export default function EmpleadoHorasPage() {
   const [cobrarGST, setCobrarGST] = useState(false)
   const [facturaExistenteId, setFacturaExistenteId] = useState<string | null>(null)
   const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [quincenaSel, setQuincenaSel] = useState<QuincenaGrupo | null>(null)
 
   const esHoy = form.fecha === hoy
   const totalHoras = (form.horaInicio && form.horaFin) ? calcularHoras(form.horaInicio, form.horaFin) : 0
@@ -102,20 +116,23 @@ export default function EmpleadoHorasPage() {
   const montoSFBruto = (form.cantidadSf && form.tarifaSfExtra) ? parseFloat(form.cantidadSf) * parseFloat(form.tarifaSfExtra) : 0
   const montoSFNeto = montoSFBruto - pagoAyudante
 
+  async function cargarHistorial(uid: string) {
+    const { data } = await supabase.from('registros_horas')
+      .select('*, proyectos(nombre, direccion)')
+      .eq('empleado_id', uid)
+      .gte('fecha', fechaMinima)
+      .order('fecha', { ascending: false })
+    setHistorial((data as unknown as RegistroHora[]) ?? [])
+  }
+
   useEffect(() => {
     async function init() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       setUserId(user.id)
-      const [prof, proy, hist, ayud] = await Promise.all([
+      const [prof, proy, ayud] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).single(),
         supabase.from('proyectos').select('id, nombre, direccion').eq('activo', true),
-        supabase.from('registros_horas')
-          .select('*, proyectos(nombre, direccion)')
-          .eq('empleado_id', user.id)
-          .gte('fecha', quincena.inicio)
-          .lte('fecha', quincena.fin)
-          .order('fecha', { ascending: false }),
         supabase.from('profiles').select('id, nombre, apellido, tarifa_hora')
           .neq('role', 'admin').eq('activo', true).neq('id', user.id),
       ])
@@ -125,8 +142,8 @@ export default function EmpleadoHorasPage() {
         setCobrarGST(prof.data.cobra_gst ?? false)
       }
       setProyectos(proy.data ?? [])
-      setHistorial((hist.data as unknown as RegistroHora[]) ?? [])
       setAyudantes(ayud.data ?? [])
+      await cargarHistorial(user.id)
     }
     init()
   }, [])
@@ -185,12 +202,7 @@ export default function EmpleadoHorasPage() {
     setTipo('hora')
     setForm(f => ({ ...f, proyectoId: '', horaInicio: '', horaFin: '', cantidadSf: '', tarifaSfExtra: '', fechaInicioExtra: '', fechaFinExtra: '', descripcionExtra: '', notas: '', ayudanteId: '', horasAyudante: '' }))
     setLoading(false)
-    const { data } = await supabase.from('registros_horas')
-      .select('*, proyectos(nombre, direccion)')
-      .eq('empleado_id', userId)
-      .gte('fecha', quincena.inicio).lte('fecha', quincena.fin)
-      .order('fecha', { ascending: false })
-    setHistorial((data as unknown as RegistroHora[]) ?? [])
+    await cargarHistorial(userId)
     setTimeout(() => setSuccess(false), 3000)
   }
 
@@ -216,23 +228,57 @@ export default function EmpleadoHorasPage() {
     setForm(f => ({ ...f, proyectoId: '', fecha: hoy, horaInicio: '', horaFin: '', cantidadSf: '', tarifaSfExtra: '', fechaInicioExtra: '', fechaFinExtra: '', descripcionExtra: '', notas: '', ayudanteId: '', horasAyudante: '' }))
   }
 
-  // Cálculos quincena
+  // Agrupar registros aprobados por quincena a la que pertenece cada fecha
   const registrosAprobados = historial.filter(r => r.estado === 'aprobado')
-  const totalHorasQuincena = registrosAprobados.filter(r => r.tipo !== 'sf' && r.tipo !== 'extra').reduce((s, r) => s + r.total_horas, 0)
-  const totalSFQuincena = registrosAprobados.filter(r => r.tipo === 'sf').reduce((s, r) => s + (r.cantidad_sf ?? 0), 0)
-  const gananciaHoras = totalHorasQuincena * (perfil?.tarifa_hora ?? 0)
-  const gananciaSF = totalSFQuincena * (perfil?.tarifa_sf ?? 0)
-  const gananciaExtras = registrosAprobados.filter(r => r.tipo === 'extra').reduce((s, r) => s + getMontoExtra(r), 0)
-  const subtotal = gananciaHoras + gananciaSF + gananciaExtras
-  const gstMonto = cobrarGST ? subtotal * 0.05 : 0
-  const total = subtotal + gstMonto
+  const quincenasMap = new Map<string, QuincenaGrupo>()
+  for (const r of registrosAprobados) {
+    const q = getQuincenaActual(new Date(r.fecha + 'T00:00:00'))
+    const key = `${q.inicio}_${q.fin}`
+    if (!quincenasMap.has(key)) {
+      quincenasMap.set(key, {
+        inicio: q.inicio, fin: q.fin, label: q.label, registros: [],
+        totalHoras: 0, totalSF: 0, gananciaHoras: 0, gananciaSF: 0, gananciaExtras: 0, subtotal: 0,
+      })
+    }
+    quincenasMap.get(key)!.registros.push(r)
+  }
+  for (const grupo of quincenasMap.values()) {
+    grupo.totalHoras = grupo.registros.filter(r => r.tipo !== 'sf' && r.tipo !== 'extra').reduce((s, r) => s + r.total_horas, 0)
+    grupo.totalSF = grupo.registros.filter(r => r.tipo === 'sf').reduce((s, r) => s + (r.cantidad_sf ?? 0), 0)
+    grupo.gananciaHoras = grupo.totalHoras * (perfil?.tarifa_hora ?? 0)
+    grupo.gananciaSF = grupo.totalSF * (perfil?.tarifa_sf ?? 0)
+    grupo.gananciaExtras = grupo.registros.filter(r => r.tipo === 'extra').reduce((s, r) => s + getMontoExtra(r), 0)
+    grupo.subtotal = grupo.gananciaHoras + grupo.gananciaSF + grupo.gananciaExtras
+  }
+  const quincenasDisponibles = Array.from(quincenasMap.values())
+    .filter(g => g.subtotal > 0)
+    .sort((a, b) => b.inicio.localeCompare(a.inicio))
+
+  const gstMonto = quincenaSel && cobrarGST ? quincenaSel.subtotal * 0.05 : 0
+  const total = quincenaSel ? quincenaSel.subtotal + gstMonto : 0
+
+  async function abrirGenerarFactura(grupo: QuincenaGrupo) {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase
+      .from('facturas')
+      .select('id')
+      .eq('empleado_id', user.id)
+      .eq('quincena_inicio', grupo.inicio)
+      .eq('quincena_fin', grupo.fin)
+      .maybeSingle()
+    setFacturaExistenteId(data?.id ?? null)
+    setQuincenaSel(grupo)
+    setMostrarConfirmacion(true)
+  }
 
   async function generarFactura() {
+    if (!quincenaSel) return
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     const uid = user.id
 
-    const detalleOrdenado = [...registrosAprobados].sort((a, b) => a.fecha.localeCompare(b.fecha))
+    const detalleOrdenado = [...quincenaSel.registros].sort((a, b) => a.fecha.localeCompare(b.fecha))
 
     // Guardar GST si cambió
     if (gstInput !== perfil?.gst_number || cobrarGST !== perfil?.cobra_gst) {
@@ -242,29 +288,27 @@ export default function EmpleadoHorasPage() {
       }).eq('id', uid)
     }
 
-    // Guardar o reemplazar factura
+    const qSel = getQuincenaActual(new Date(quincenaSel.inicio + 'T00:00:00'))
     const pad = (n: number) => String(n).padStart(2, '0')
-    const numeroFactura = `INV-${quincena.anio}${pad(quincena.mes)}-Q${quincena.numero}-${perfil?.nombre?.toUpperCase().replace(/\s/g, '')}`
+    const numeroFactura = `INV-${qSel.anio}${pad(qSel.mes)}-Q${qSel.numero}-${perfil?.nombre?.toUpperCase().replace(/\s/g, '')}`
 
     let facturaId = facturaExistenteId
 
     if (facturaExistenteId) {
-      // Actualizar la factura existente
       await supabase.from('facturas').update({
-        subtotal,
+        subtotal: quincenaSel.subtotal,
         gst: gstMonto,
         total,
         gst_number: cobrarGST ? gstInput : null,
         detalle: detalleOrdenado,
       }).eq('id', facturaExistenteId)
     } else {
-      // Crear nueva factura
       const { data: nuevaFactura } = await supabase.from('facturas').insert({
         empleado_id: uid,
         numero_factura: numeroFactura,
-        quincena_inicio: quincena.inicio,
-        quincena_fin: quincena.fin,
-        subtotal,
+        quincena_inicio: quincenaSel.inicio,
+        quincena_fin: quincenaSel.fin,
+        subtotal: quincenaSel.subtotal,
         gst: gstMonto,
         total,
         gst_number: cobrarGST ? gstInput : null,
@@ -273,12 +317,10 @@ export default function EmpleadoHorasPage() {
       facturaId = nuevaFactura?.id ?? null
     }
 
-    const factura = { id: facturaId }
-
     setMostrarConfirmacion(false)
     setMostrarGST(false)
-    if (factura) {
-      router.push(`/empleado/facturas/${factura.id}`)
+    if (facturaId) {
+      router.push(`/empleado/facturas/${facturaId}`)
     }
   }
 
@@ -301,7 +343,7 @@ export default function EmpleadoHorasPage() {
         <div>
           <h1 className="text-xl font-bold text-slate-800">Mis Horas</h1>
           <p className="text-slate-500 text-sm mt-0.5">Hola, {perfil?.nombre} 👋</p>
-          <p className="text-xs text-amber-600 font-medium mt-1">{quincena.label}</p>
+          <p className="text-xs text-amber-600 font-medium mt-1">{quincena.label} (actual)</p>
           <p className="text-xs text-slate-400">{formatFecha(quincena.inicio)} — {formatFecha(quincena.fin)}</p>
         </div>
         {perfil?.tarifa_hora && (
@@ -313,46 +355,33 @@ export default function EmpleadoHorasPage() {
         )}
       </div>
 
-      {/* Resumen quincena */}
-      {subtotal > 0 && (
-        <div className="bg-amber-400 rounded-2xl p-4">
+      {/* Resumen por quincena detectada */}
+      {quincenasDisponibles.map(grupo => (
+        <div key={`${grupo.inicio}_${grupo.fin}`} className="bg-amber-400 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <p className="text-sm text-amber-900 font-medium">Total aprobado esta quincena</p>
-              <p className="text-3xl font-black text-slate-900">${total.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</p>
+              <p className="text-sm text-amber-900 font-medium">{grupo.label}</p>
+              <p className="text-xs text-amber-800">{formatFecha(grupo.inicio)} — {formatFecha(grupo.fin)}</p>
+              <p className="text-3xl font-black text-slate-900 mt-1">${grupo.subtotal.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</p>
             </div>
             <div className="text-4xl">💰</div>
           </div>
           <div className="flex flex-wrap gap-2 text-xs text-amber-900">
-            {gananciaHoras > 0 && <span>{totalHorasQuincena}h × ${perfil?.tarifa_hora} = ${gananciaHoras.toFixed(2)}</span>}
-            {gananciaSF > 0 && <span>{totalSFQuincena} SF × ${perfil?.tarifa_sf} = ${gananciaSF.toFixed(2)}</span>}
-            {gananciaExtras > 0 && <span>Trabajos extra = ${gananciaExtras.toFixed(2)}</span>}
-            {cobrarGST && <span>GST 5% = ${gstMonto.toFixed(2)}</span>}
+            {grupo.gananciaHoras > 0 && <span>{grupo.totalHoras}h × ${perfil?.tarifa_hora} = ${grupo.gananciaHoras.toFixed(2)}</span>}
+            {grupo.gananciaSF > 0 && <span>{grupo.totalSF} SF × ${perfil?.tarifa_sf} = ${grupo.gananciaSF.toFixed(2)}</span>}
+            {grupo.gananciaExtras > 0 && <span>Trabajos extra = ${grupo.gananciaExtras.toFixed(2)}</span>}
           </div>
-          {/* Botón generar factura */}
           <button
-            onClick={async () => {
-              const { data: { user } } = await supabase.auth.getUser()
-              if (!user) return
-              const { data } = await supabase
-                .from('facturas')
-                .select('id')
-                .eq('empleado_id', user.id)
-                .eq('quincena_inicio', quincena.inicio)
-                .eq('quincena_fin', quincena.fin)
-                .maybeSingle()
-              setFacturaExistenteId(data?.id ?? null)
-              setMostrarConfirmacion(true)
-            }}
+            onClick={() => abrirGenerarFactura(grupo)}
             className="mt-3 w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm"
           >
-            Generar Factura de la Quincena
+            Generar Factura de esta Quincena
           </button>
         </div>
-      )}
+      ))}
 
       {/* Modal confirmación */}
-      {mostrarConfirmacion && !mostrarGST && (
+      {mostrarConfirmacion && !mostrarGST && quincenaSel && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <h2 className="text-lg font-bold text-slate-800 mb-2">¿Generar factura?</h2>
@@ -366,16 +395,16 @@ export default function EmpleadoHorasPage() {
               </div>
             )}
             <div className="bg-slate-50 rounded-xl p-3 mb-4 text-sm text-slate-600">
-              <p><span className="font-medium">Período:</span> {quincena.label}</p>
-              <p><span className="font-medium">Registros aprobados:</span> {registrosAprobados.length}</p>
-              <p><span className="font-medium">Subtotal:</span> ${subtotal.toFixed(2)}</p>
+              <p><span className="font-medium">Período:</span> {quincenaSel.label}</p>
+              <p><span className="font-medium">Registros aprobados:</span> {quincenaSel.registros.length}</p>
+              <p><span className="font-medium">Subtotal:</span> ${quincenaSel.subtotal.toFixed(2)}</p>
             </div>
             <div className="flex gap-3">
               <button onClick={() => setMostrarGST(true)}
                 className="flex-1 bg-amber-400 hover:bg-amber-500 text-slate-900 font-semibold py-2.5 rounded-xl">
                 Sí, continuar
               </button>
-              <button onClick={() => setMostrarConfirmacion(false)}
+              <button onClick={() => { setMostrarConfirmacion(false); setQuincenaSel(null) }}
                 className="px-4 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">
                 Cancelar
               </button>
@@ -385,7 +414,7 @@ export default function EmpleadoHorasPage() {
       )}
 
       {/* Modal GST */}
-      {mostrarGST && (
+      {mostrarGST && quincenaSel && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <h2 className="text-lg font-bold text-slate-800 mb-2">¿Tu factura incluye GST?</h2>
@@ -412,11 +441,11 @@ export default function EmpleadoHorasPage() {
             )}
 
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm">
-              <div className="flex justify-between text-slate-700"><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
-              {cobrarGST && <div className="flex justify-between text-slate-700"><span>GST 5%</span><span>${(subtotal * 0.05).toFixed(2)}</span></div>}
+              <div className="flex justify-between text-slate-700"><span>Subtotal</span><span>${quincenaSel.subtotal.toFixed(2)}</span></div>
+              {cobrarGST && <div className="flex justify-between text-slate-700"><span>GST 5%</span><span>${(quincenaSel.subtotal * 0.05).toFixed(2)}</span></div>}
               <div className="flex justify-between font-bold text-slate-800 border-t border-amber-200 mt-2 pt-2">
                 <span>Total</span>
-                <span>${(subtotal + (cobrarGST ? subtotal * 0.05 : 0)).toFixed(2)}</span>
+                <span>${(quincenaSel.subtotal + (cobrarGST ? quincenaSel.subtotal * 0.05 : 0)).toFixed(2)}</span>
               </div>
             </div>
 
@@ -477,7 +506,7 @@ export default function EmpleadoHorasPage() {
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Fecha *</label>
-            <input type="date" value={form.fecha} max={hoy} min={quincena.inicio}
+            <input type="date" value={form.fecha} max={hoy} min={fechaMinima}
               onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))}
               className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400" />
             {!esHoy && tipo === 'hora' && (
@@ -617,10 +646,10 @@ export default function EmpleadoHorasPage() {
         </form>
       </div>
 
-      {/* Historial de la quincena */}
+      {/* Historial */}
       {Object.keys(porFecha).length > 0 && (
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h2 className="font-semibold text-slate-700 mb-4">Registros de esta quincena</h2>
+          <h2 className="font-semibold text-slate-700 mb-4">Mis Registros (últimos 60 días)</h2>
           <div className="space-y-4">
             {Object.entries(porFecha).map(([fecha, registros]) => (
               <div key={fecha}>
